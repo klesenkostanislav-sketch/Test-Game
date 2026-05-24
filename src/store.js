@@ -14,12 +14,7 @@ const initialData = {
       {
         "id": "cell_0_1",
         "type": "GENERATOR",
-        "assignedZombie": {
-          "id": "z_992",
-          "type": "WALKER",
-          "stamina": 45,
-          "outputPerTick": 2
-        }
+        "assignedZombie": null
       },
       {
         "id": "cell_1_2",
@@ -30,6 +25,13 @@ const initialData = {
       }
     ],
     "zombiePen": [
+      {
+        "id": "z_992",
+        "type": "WALKER",
+        "stamina": 45,
+        "outputPerTick": 2,
+        "status": "CONTAINED"
+      },
       {
         "id": "z_104",
         "type": "BLOATER",
@@ -75,6 +77,8 @@ export const useGameStore = create((set, get) => ({
   grid: createGridMap(initialData.gameState.grid),
   zombiePen: initialData.gameState.zombiePen,
   activeEvents: initialData.gameState.activeEvents,
+  selectedZombie: null,
+  gameTickInterval: null,
 
   // Action to till a cell (change EMPTY to TILLED, costs 10 energy)
   tillCell: (row, col) => {
@@ -108,6 +112,118 @@ export const useGameStore = create((set, get) => ({
     }))
 
     return true
+  },
+
+  // Select a zombie from the pen
+  selectZombie: (zombie) => {
+    set({ selectedZombie: zombie })
+  },
+
+  // Assign a zombie to a generator cell
+  assignZombieToGenerator: (cellId, zombieId) => {
+    const { grid, zombiePen } = get()
+    const cell = grid[cellId]
+    const zombie = zombiePen.find(z => z.id === zombieId)
+
+    if (!cell || cell.type !== 'GENERATOR') {
+      console.log('Invalid cell type')
+      return false
+    }
+
+    if (!zombie || zombie.status !== 'CONTAINED') {
+      console.log('Invalid zombie')
+      return false
+    }
+
+    set((state) => ({
+      grid: {
+        ...state.grid,
+        [cellId]: {
+          ...cell,
+          assignedZombie: {
+            id: zombie.id,
+            type: zombie.type,
+            stamina: zombie.stamina,
+            outputPerTick: zombie.outputPerTick || 2
+          }
+        }
+      },
+      zombiePen: state.zombiePen.filter(z => z.id !== zombieId),
+      selectedZombie: null
+    }))
+
+    return true
+  },
+
+  // Game tick - increases energy from generators and decreases zombie stamina
+  gameTick: () => {
+    const { grid, resources } = get()
+    let totalEnergyGain = 0
+    const updatedGrid = { ...grid }
+
+    // Process each cell with an assigned zombie
+    Object.values(grid).forEach(cell => {
+      if (cell.assignedZombie && cell.assignedZombie.stamina > 0) {
+        // Calculate energy gain
+        const energyGain = cell.assignedZombie.outputPerTick || 2
+        totalEnergyGain += energyGain
+
+        // Decrease stamina
+        const newStamina = Math.max(0, cell.assignedZombie.stamina - 1)
+
+        updatedGrid[cell.id] = {
+          ...cell,
+          assignedZombie: {
+            ...cell.assignedZombie,
+            stamina: newStamina
+          }
+        }
+
+        // If stamina reaches 0, remove zombie from generator
+        if (newStamina === 0) {
+          updatedGrid[cell.id] = {
+            ...cell,
+            assignedZombie: null
+          }
+          // Return zombie to pen (optional - could add back to zombiePen)
+        }
+      }
+    })
+
+    if (totalEnergyGain > 0) {
+      set({
+        grid: updatedGrid,
+        resources: {
+          ...resources,
+          energy: resources.energy + totalEnergyGain
+        }
+      })
+    }
+  },
+
+  // Start the game tick interval
+  startGameTick: () => {
+    const { gameTickInterval, gameTick } = get()
+    
+    if (gameTickInterval) {
+      clearInterval(gameTickInterval)
+    }
+
+    const interval = setInterval(() => {
+      gameTick()
+    }, 1000)
+
+    set({ gameTickInterval: interval })
+  },
+
+  // Stop the game tick interval
+  stopGameTick: () => {
+    const { gameTickInterval } = get()
+    
+    if (gameTickInterval) {
+      clearInterval(gameTickInterval)
+      set({ gameTickInterval: null })
+    }
   },
 
   // Get cell by row and col
